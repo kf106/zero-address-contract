@@ -1,0 +1,4 @@
+eth-keys>=0.4.0
+eth-utils>=2.0.0
+pycryptodome>=3.19.0
+

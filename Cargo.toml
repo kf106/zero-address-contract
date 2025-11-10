@@ -1,0 +1,12 @@
+[package]
+name = "zero-address-contract"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+secp256k1 = { version = "0.28", features = ["rand"] }
+sha3 = "0.10"
+rand = "0.8"
+hex = "0.4"
+ethereum-types = "0.15"
+
