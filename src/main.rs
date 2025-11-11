@@ -111,6 +111,18 @@ fn count_trailing_zeros(address: &[u8; 20]) -> usize {
     count
 }
 
+fn count_leading_zeros(address: &[u8; 20]) -> usize {
+    let mut count = 0;
+    for byte in address {
+        if *byte == 0 {
+            count += 1;
+        } else {
+            break;
+        }
+    }
+    count
+}
+
 /// Load keys and firstContractAddress from myaddress.dat file
 fn load_keys_from_file() -> Result<(SecretKey, PublicKey, Option<[u8; 20]>), String> {
     let contents = fs::read_to_string("myaddress.dat")
@@ -433,12 +445,16 @@ fn main() {
     let mut best_salt = salt;
     let mut best_address = first_contract_address;
     let mut best_trailing_zeros = count_trailing_zeros(&best_address);
+    let mut best_leading_zeros = count_leading_zeros(&best_address);
+    let mut best_score = best_leading_zeros + best_trailing_zeros;
     let mut checked = 0u64;
     
     println!("Searching through salt values...");
     println!(
-        "Current best: {} trailing zeros at salt 0x{}",
+        "Current best: leading={} trailing={} (score={}) at salt 0x{}",
+        best_leading_zeros,
         best_trailing_zeros,
+        best_score,
         hex::encode(best_salt)
     );
     
@@ -446,15 +462,26 @@ fn main() {
     loop {
         let contract_address = compute_create2_address(&factory_address, &salt, &init_code);
         let trailing_zeros = count_trailing_zeros(&contract_address);
+        let leading_zeros = count_leading_zeros(&contract_address);
+        let score = leading_zeros + trailing_zeros;
         
-        if trailing_zeros > best_trailing_zeros {
+        if score > best_score
+            || (score == best_score
+                && (trailing_zeros > best_trailing_zeros
+                    || (trailing_zeros == best_trailing_zeros
+                        && leading_zeros > best_leading_zeros)))
+        {
+            best_score = score;
             best_trailing_zeros = trailing_zeros;
+            best_leading_zeros = leading_zeros;
             best_salt = salt;
             best_address = contract_address;
             let best_address_hex = to_checksum_address(&best_address);
             println!(
-                "New best: {} trailing zeros at salt 0x{} -> 0x{}",
+                "New best: leading={} trailing={} (score={}) at salt 0x{} -> 0x{}",
+                best_leading_zeros,
                 best_trailing_zeros,
+                best_score,
                 hex::encode(best_salt),
                 best_address_hex
             );
@@ -462,14 +489,17 @@ fn main() {
         
         checked += 1;
         if checked % 100000 == 0 {
-            print!("Checked {} salts... (best: {} zeros)\r", checked, best_trailing_zeros);
+            print!(
+                "Checked {} salts... (best score={}, leading={}, trailing={})\r",
+                checked, best_score, best_leading_zeros, best_trailing_zeros
+            );
             io::stdout().flush().unwrap();
         }
         
         increment_salt(&mut salt);
         
-        // Stop if we find an address with 20 trailing zeros (all zeros, very unlikely)
-        if best_trailing_zeros >= 20 {
+        // Stop if we find an address with 20 trailing and leading zeros (all zeros, very unlikely)
+        if best_trailing_zeros >= 20 && best_leading_zeros >= 20 {
             break;
         }
         
@@ -491,7 +521,9 @@ fn main() {
     println!("Private Key:      0x{}", hex::encode(secret_key_bytes));
     println!("Deployer Address: 0x{}", deployer_address_hex);
     println!("Best Salt:        0x{}", hex::encode(best_salt));
+    println!("Leading Zeros:    {} bytes", best_leading_zeros);
     println!("Trailing Zeros:   {} bytes", best_trailing_zeros);
+    println!("Score (L+T):      {} bytes", best_score);
     println!("CREATE2 Address:  0x{}", best_address_hex);
     println!("Address (hex):    0x{}", hex::encode(best_address));
     println!();

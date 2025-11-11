@@ -185,6 +185,17 @@ def count_trailing_zeros(address: bytes) -> int:
     return count
 
 
+def count_leading_zeros(address: bytes) -> int:
+    """Count leading zeros in an address (from the leftmost byte)."""
+    count = 0
+    for byte in address:
+        if byte == 0:
+            count += 1
+        else:
+            break
+    return count
+
+
 def increment_salt(salt_bytes: bytearray) -> None:
     """Increment a 32-byte big-endian salt in place."""
     for i in range(31, -1, -1):
@@ -366,32 +377,57 @@ def main():
     best_salt = bytes(salt)
     best_address = first_contract_address
     best_trailing_zeros = count_trailing_zeros(best_address)
+    best_leading_zeros = count_leading_zeros(best_address)
+    best_score = best_leading_zeros + best_trailing_zeros
     checked = 0
     
     print("Searching through salt values...")
-    print(f"Current best: {best_trailing_zeros} trailing zeros at salt 0x{best_salt.hex()}")
+    print(f"Current best: leading={best_leading_zeros}, trailing={best_trailing_zeros} (score={best_score}) at salt 0x{best_salt.hex()}")
     
     # Search through salt values
     try:
         while True:
             contract_address = compute_create2_address(factory_address, bytes(salt), init_code)
             trailing_zeros = count_trailing_zeros(contract_address)
+            leading_zeros = count_leading_zeros(contract_address)
+            score = leading_zeros + trailing_zeros
             
-            if trailing_zeros > best_trailing_zeros:
+            if (
+                score > best_score
+                or (
+                    score == best_score
+                    and (
+                        trailing_zeros > best_trailing_zeros
+                        or (
+                            trailing_zeros == best_trailing_zeros
+                            and leading_zeros > best_leading_zeros
+                        )
+                    )
+                )
+            ):
+                best_score = score
                 best_trailing_zeros = trailing_zeros
+                best_leading_zeros = leading_zeros
                 best_salt = bytes(salt)
                 best_address = contract_address
                 best_address_hex = to_checksum_address(to_hex(best_address))
-                print(f"New best: {best_trailing_zeros} trailing zeros at salt 0x{best_salt.hex()} -> {best_address_hex}")
+                print(
+                    f"New best: leading={best_leading_zeros}, trailing={best_trailing_zeros} "
+                    f"(score={best_score}) at salt 0x{best_salt.hex()} -> {best_address_hex}"
+                )
             
             checked += 1
             if checked % 100000 == 0:
-                print(f"Checked {checked:,} salts... (best: {best_trailing_zeros} zeros)", end='\r')
+                print(
+                    f"Checked {checked:,} salts... "
+                    f"(best score={best_score}, leading={best_leading_zeros}, trailing={best_trailing_zeros})",
+                    end='\r'
+                )
             
             increment_salt(salt)
             
             # Stop if we find an address with 20 trailing zeros (all zeros, very unlikely)
-            if best_trailing_zeros >= 20:
+            if best_trailing_zeros >= 20 and best_leading_zeros >= 20:
                 break
             
             # Optional: Add a limit to prevent infinite loops
@@ -412,7 +448,9 @@ def main():
     print(f"Private Key:      {to_hex(private_key.to_bytes())}")
     print(f"Deployer Address: {deployer_address_hex}")
     print(f"Best Salt:        0x{best_salt.hex()}")
+    print(f"Leading Zeros:    {best_leading_zeros} bytes")
     print(f"Trailing Zeros:   {best_trailing_zeros} bytes")
+    print(f"Score (L+T):      {best_score} bytes")
     print(f"CREATE2 Address:  {best_address_hex}")
     print(f"Address (hex):    {to_hex(best_address)}")
     print()
