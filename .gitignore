@@ -14,3 +14,12 @@ __pycache__/
 venv/
 env/
 
+# Hardhat
+node_modules/
+cache/
+artifacts/
+coverage/
+coverage.json
+typechain/
+typechain-types/
+

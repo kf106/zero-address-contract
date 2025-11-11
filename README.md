@@ -1,6 +1,6 @@
 # Zero Address Contract - CREATE2 Address Generator
 
-This program generates an ECDSA private key, derives the public key and Ethereum address, then computes the CREATE2 contract address for a contract deployed with salt 0.
+This program generates an ECDSA private key, derives the public key and Ethereum address, then computes the CREATE2 contract address for a contract deployed with salt 0. It then starts iterating the salt, storing the resulting contract address with the most trailing zeros.
 
 ## Performance
 
@@ -26,10 +26,53 @@ cargo run --release
 ```
 
 ### Python Version
+
+It's recommended to use a Python virtual environment to keep dependencies isolated:
+
 ```bash
+# Create a virtual environment
+python3 -m venv venv
+
+# Activate the virtual environment
+# On Linux/macOS:
+source venv/bin/activate
+# On Windows:
+# venv\Scripts\activate
+
+# Install required packages
 pip install -r requirements.txt
+
+# Run the program
 python generate_address.py
 ```
+
+When you're done, you can deactivate the virtual environment:
+```bash
+deactivate
+```
+
+**Note**: The `venv/` directory is already in `.gitignore` and won't be committed to version control.
+
+## Command-Line Options
+
+### `-t` / `--time-estimate`
+
+Calculate and report the expected time in millennia to find a zero address (an address where all 20 bytes are `0x00`).
+
+```bash
+# Rust version
+cargo run --release -- -t
+
+# Python version
+python generate_address.py -t
+```
+
+This option:
+- Benchmarks the computation speed by running 100,000 CREATE2 address calculations
+- Calculates the expected time based on the probability of finding a zero address (1 in 2^160)
+- Reports the result in millennia, along with a comparison to the age of the universe
+
+**Note**: Finding a zero address is computationally infeasible - the expected time is astronomically large (many orders of magnitude longer than the age of the universe).
 
 ## What it does
 
@@ -96,4 +139,67 @@ Searched through 1,000,000 salt values
 ```
 
 The program will continue searching until interrupted (Ctrl+C) or until it finds an address with 20 trailing zeros (extremely unlikely). You can uncomment the search limit in the code to set a maximum number of salts to check.
+
+## Proxy Contract
+
+### `SimpleProxy.sol`
+A simple proxy contract that forwards calls to any contract:
+- Only accepts calls from an authorized address (defaults to `0x2c36dd7bb3e95e7a0219e70737ee8041f22d2081`, but can be changed)
+- Can call **any contract** with **any function** on your behalf
+- Uses `call` so the target contract sees `msg.sender = proxy address` (not your EOA)
+- Allows changing the authorized address (only by the current authorized address)
+- Includes ETH withdrawal functionality to send ETH to the authorized address
+
+**Key Features:**
+- **Universal Caller**: Call any contract via `executeTo(target, calldata)`
+- **Transparent**: Target contracts see calls as coming from the proxy address
+- **Simple**: Minimal code, easy to understand and audit
+- **Flexible Authorization**: Change the authorized address via `setAuthorizedAddress()`
+- **ETH Management**: Withdraw all ETH from the proxy via `withdrawAllETH()`
+
+**Usage:**
+
+```solidity
+// 1. Deploy the proxy
+// If _authorizedAddress is address(0), defaults to 0x2c36dd7bb3e95e7a0219e70737ee8041f22d2081
+SimpleProxy proxy = new SimpleProxy(address(0));
+
+// 2. Call any contract function (encode calldata off-chain)
+// Example: Transfer ERC20 tokens
+bytes memory transferData = abi.encodeWithSignature("transfer(address,uint256)", recipient, amount);
+proxy.executeTo(tokenAddress, transferData);
+
+// 3. Call with ETH value
+bytes memory depositData = abi.encodeWithSignature("deposit()");
+proxy.executeToWithValue(contractAddress, depositData, 1 ether);
+
+// 4. Change the authorized address (only from current authorized address)
+proxy.setAuthorizedAddress(newAuthorizedAddress);
+
+// 5. Withdraw all ETH from the proxy to the authorized address
+proxy.withdrawAllETH();
+```
+
+**Important Notes:**
+- Target contracts see `msg.sender = proxy address` (not your EOA)
+- Tokens/assets must be in the proxy's balance for transfers to work
+- You encode function calls off-chain (using web3.js, ethers.js, etc.) and pass the calldata
+- The proxy acts as a universal caller on your behalf
+- The authorized address can be changed by the current authorized address
+- ETH can be withdrawn to the authorized address at any time
+
+### Using with CREATE2 Address Generator
+
+To compute the CREATE2 address for deploying these contracts:
+
+1. Compile the contract to get the bytecode
+2. Include constructor arguments (e.g., target/implementation address) in the init_code
+3. Update `init_code` in the generator program
+4. Run the generator to find a salt that produces your desired address pattern
+
+**Example:**
+```python
+# In generate_address.py or src/main.rs, set:
+init_code = compiled_bytecode + encoded_constructor_args
+```
 
